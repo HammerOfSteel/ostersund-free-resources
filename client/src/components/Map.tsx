@@ -74,82 +74,134 @@
  * - “data-only” → Place, Geometry utilities.
  */
 
-/// <reference types="@types/google.maps" />
-
-import { useEffect, useRef } from "react";
-import { usePersistFn } from "@/hooks/usePersistFn";
+import "leaflet/dist/leaflet.css";
+import L from "leaflet";
+import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import { useEffect } from "react";
 import { cn } from "@/lib/utils";
+import type { Resource } from "@/data/resources";
 
-declare global {
-  interface Window {
-    google?: typeof google;
-  }
+interface LatLng {
+  lat: number;
+  lng: number;
 }
 
-const API_KEY = import.meta.env.VITE_FRONTEND_FORGE_API_KEY;
-const FORGE_BASE_URL =
-  import.meta.env.VITE_FRONTEND_FORGE_API_URL ||
-  "https://forge.butterfly-effect.dev";
-const MAPS_PROXY_URL = `${FORGE_BASE_URL}/v1/maps/proxy`;
-
-function loadMapScript() {
-  return new Promise(resolve => {
-    const script = document.createElement("script");
-    script.src = `${MAPS_PROXY_URL}/maps/api/js?key=${API_KEY}&v=weekly&libraries=marker,places,geocoding,geometry`;
-    script.async = true;
-    script.crossOrigin = "anonymous";
-    script.onload = () => {
-      resolve(null);
-      script.remove(); // Clean up immediately
-    };
-    script.onerror = () => {
-      console.error("Failed to load Google Maps script");
-    };
-    document.head.appendChild(script);
-  });
+interface ReferencePoint {
+  name: string;
+  coordinates: LatLng;
 }
 
 interface MapViewProps {
   className?: string;
-  initialCenter?: google.maps.LatLngLiteral;
+  initialCenter?: LatLng;
   initialZoom?: number;
-  onMapReady?: (map: google.maps.Map) => void;
+  resources?: Resource[];
+  selectedResourceId?: string | null;
+  referencePoint?: ReferencePoint;
+  getCategoryColor?: (categoryId: string) => string;
+  onMarkerClick?: (id: string) => void;
+}
+
+function createPinIcon(color: string, selected: boolean) {
+  const size = selected ? 36 : 28;
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 24 24">
+      <circle cx="12" cy="10" r="6" fill="${color}" stroke="white" stroke-width="2"/>
+      <path d="M12 22 L12 16" stroke="${color}" stroke-width="2.5" stroke-linecap="round"/>
+      ${selected ? `<circle cx="12" cy="10" r="3" fill="white"/>` : ""}
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: "",
+    iconSize: [size, size],
+    iconAnchor: [size / 2, size],
+    popupAnchor: [0, -size],
+  });
+}
+
+function createRefIcon() {
+  const svg = `
+    <svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 24 24">
+      <circle cx="12" cy="10" r="6" fill="#1d4ed8" stroke="white" stroke-width="2"/>
+      <path d="M12 22 L12 16" stroke="#1d4ed8" stroke-width="2.5" stroke-linecap="round"/>
+      <circle cx="12" cy="10" r="2.5" fill="white"/>
+    </svg>`;
+  return L.divIcon({
+    html: svg,
+    className: "",
+    iconSize: [32, 32],
+    iconAnchor: [16, 32],
+    popupAnchor: [0, -32],
+  });
+}
+
+function PanToSelected({
+  selectedResourceId,
+  resources,
+}: {
+  selectedResourceId?: string | null;
+  resources?: Resource[];
+}) {
+  const map = useMap();
+  useEffect(() => {
+    if (!selectedResourceId || !resources) return;
+    const r = resources.find((res) => res.id === selectedResourceId);
+    if (r) map.panTo([r.coordinates.lat, r.coordinates.lng]);
+  }, [selectedResourceId, resources, map]);
+  return null;
 }
 
 export function MapView({
   className,
-  initialCenter = { lat: 37.7749, lng: -122.4194 },
-  initialZoom = 12,
-  onMapReady,
+  initialCenter = { lat: 63.1758, lng: 14.6365 },
+  initialZoom = 13,
+  resources = [],
+  selectedResourceId,
+  referencePoint,
+  getCategoryColor,
+  onMarkerClick,
 }: MapViewProps) {
-  const mapContainer = useRef<HTMLDivElement>(null);
-  const map = useRef<google.maps.Map | null>(null);
-
-  const init = usePersistFn(async () => {
-    await loadMapScript();
-    if (!mapContainer.current) {
-      console.error("Map container not found");
-      return;
-    }
-    map.current = new window.google.maps.Map(mapContainer.current, {
-      zoom: initialZoom,
-      center: initialCenter,
-      mapTypeControl: true,
-      fullscreenControl: true,
-      zoomControl: true,
-      streetViewControl: true,
-      mapId: "DEMO_MAP_ID",
-    });
-    if (onMapReady) {
-      onMapReady(map.current);
-    }
-  });
-
-  useEffect(() => {
-    init();
-  }, [init]);
-
   return (
-    <div ref={mapContainer} className={cn("w-full h-[500px]", className)} />
+    <MapContainer
+      center={[initialCenter.lat, initialCenter.lng]}
+      zoom={initialZoom}
+      className={cn("w-full", className)}
+      style={{ height: "100%" }}
+    >
+      <TileLayer
+        attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+        url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+      />
+
+      {referencePoint && (
+        <Marker
+          position={[referencePoint.coordinates.lat, referencePoint.coordinates.lng]}
+          icon={createRefIcon()}
+        >
+          <Popup>{referencePoint.name}</Popup>
+        </Marker>
+      )}
+
+      {resources.map((resource) => {
+        const color = getCategoryColor?.(resource.category) ?? "#C97C5C";
+        const selected = resource.id === selectedResourceId;
+        return (
+          <Marker
+            key={resource.id}
+            position={[resource.coordinates.lat, resource.coordinates.lng]}
+            icon={createPinIcon(color, selected)}
+            eventHandlers={{ click: () => onMarkerClick?.(resource.id) }}
+          >
+            <Popup>
+              <strong>{resource.name}</strong>
+              <br />
+              <span style={{ color: "#6b7280", fontSize: "0.85em" }}>{resource.description}</span>
+            </Popup>
+          </Marker>
+        );
+      })}
+
+      <PanToSelected selectedResourceId={selectedResourceId} resources={resources} />
+    </MapContainer>
   );
 }

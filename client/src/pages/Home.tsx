@@ -3,7 +3,7 @@ import { ResourceCard } from "@/components/ResourceCard";
 import { CategoryFilter } from "@/components/CategoryFilter";
 import { SearchBar } from "@/components/SearchBar";
 import { categories, resources, referencePoint } from "@/data/resources";
-import { useState, useMemo, useRef, useEffect } from "react";
+import { useState, useMemo } from "react";
 import { MapPin } from "lucide-react";
 
 /**
@@ -20,9 +20,6 @@ export default function Home() {
   const [selectedResourceId, setSelectedResourceId] = useState<string | null>(
     null
   );
-  const mapRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
-
   // Filter resources based on category and search query
   const filteredResources = useMemo(() => {
     return resources.filter((resource) => {
@@ -45,42 +42,6 @@ export default function Home() {
     const category = categories.find((c) => c.id === categoryId);
     return category?.color || "#C97C5C";
   };
-
-  // Initialize map with markers
-  const handleMapReady = (map: google.maps.Map) => {
-    mapRef.current = map;
-    updateMapMarkers();
-  };
-
-  const updateMapMarkers = () => {
-    if (!mapRef.current || !window.google) return;
-
-    // Clear existing markers
-    markersRef.current.forEach((marker) => marker.element?.remove());
-    markersRef.current = [];
-
-    // Add reference point marker
-    const refMarker = new window.google.maps.marker.AdvancedMarkerElement({
-      map: mapRef.current,
-      position: referencePoint.coordinates,
-      title: referencePoint.name,
-    });
-    markersRef.current.push(refMarker);
-
-    // Add resource markers
-    filteredResources.forEach((resource) => {
-      const marker = new window.google.maps.marker.AdvancedMarkerElement({
-        map: mapRef.current,
-        position: resource.coordinates,
-        title: resource.name,
-      });
-      markersRef.current.push(marker);
-    });
-  };
-
-  useEffect(() => {
-    updateMapMarkers();
-  }, [filteredResources]);
 
   return (
     <div className="min-h-screen bg-background">
@@ -133,7 +94,11 @@ export default function Home() {
                 <MapView
                   initialCenter={referencePoint.coordinates}
                   initialZoom={14}
-                  onMapReady={handleMapReady}
+                  resources={filteredResources}
+                  selectedResourceId={selectedResourceId}
+                  referencePoint={referencePoint}
+                  getCategoryColor={getCategoryColor}
+                  onMarkerClick={setSelectedResourceId}
                   className="h-full"
                 />
               </div>
